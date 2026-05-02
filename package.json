@@ -67,5 +67,11 @@
   },
   "browserslist": [
     "last 1 Chrome versions"
-  ]
+  ],
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  }
 }
