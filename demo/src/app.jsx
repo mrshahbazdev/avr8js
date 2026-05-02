@@ -314,6 +314,10 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showAutoGen, setShowAutoGen] = useState(false);
+  const [autoGenRunning, setAutoGenRunning] = useState(false);
+  const [autoGenProgress, setAutoGenProgress] = useState({ current: 0, total: 0, currentName: '' });
+  const autoGenAbortRef = useRef(false);
   const [logoBase64, setLogoBase64] = useState(() => {
     try { return localStorage.getItem('v2ui_logo_v4') || ''; } catch { return ''; }
   });
@@ -394,6 +398,79 @@ export default function App() {
     setActivePageIndex(0);
     setShowSuggestions(false);
     addToast(`Added ${set.pages.length} screens from "${set.name}"`, 'success');
+  };
+
+  // ── Auto Generate All Screens ──
+  const generateSingleScreen = async (pageName, allPagesSnapshot, brandSnapshot, logoB64, retryCount = 0) => {
+    const preset = PRESETS.find(p => p.label === pageName);
+    const promptText = preset ? preset.prompt : `Design a beautiful ${pageName} screen that matches the app style.`;
+    const parts = [{ text: `Task: Create the "${pageName}" mobile screen.\nInstructions: ${promptText}` }];
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          systemInstruction: { parts: [{ text: buildSystemPrompt(brandSnapshot, allPagesSnapshot, pageName, !!logoB64) }] },
+        }),
+      }
+    );
+    if (!resp.ok) {
+      if (retryCount < 2) {
+        await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 1500));
+        return generateSingleScreen(pageName, allPagesSnapshot, brandSnapshot, logoB64, retryCount + 1);
+      }
+      throw new Error(`Failed: ${resp.status}`);
+    }
+    const data = await resp.json();
+    let html = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    html = html.replace(/```(html|markdown)?/g, '').replace(/```/g, '').trim();
+    if (logoB64) html = html.replace(/\{\{APP_LOGO\}\}/g, logoB64);
+    return html;
+  };
+
+  const autoGenerateAll = async (set) => {
+    const newPages = set.pages.map((name, i) => ({ id: (Date.now() + i).toString(), name, html: '' }));
+    pagesHistory.set(newPages);
+    setShowAutoGen(false);
+    setShowSuggestions(false);
+    setAutoGenRunning(true);
+    autoGenAbortRef.current = false;
+    setAutoGenProgress({ current: 0, total: newPages.length, currentName: newPages[0].name });
+    addToast(`Auto-generating ${newPages.length} screens...`, 'success');
+
+    let updatedPages = [...newPages];
+    const brandSnap = { ...brand };
+    const logoSnap = logoBase64;
+
+    for (let i = 0; i < updatedPages.length; i++) {
+      if (autoGenAbortRef.current) {
+        addToast('Auto-generation stopped.', 'info');
+        break;
+      }
+      setActivePageIndex(i);
+      setAutoGenProgress({ current: i + 1, total: updatedPages.length, currentName: updatedPages[i].name });
+      try {
+        const html = await generateSingleScreen(updatedPages[i].name, updatedPages, brandSnap, logoSnap);
+        updatedPages = [...updatedPages];
+        updatedPages[i] = { ...updatedPages[i], html };
+        pagesHistory.set(updatedPages);
+        setPreviewKey(k => k + 1);
+        setActiveTab('preview');
+        addToast(`"${updatedPages[i].name}" done (${i + 1}/${updatedPages.length})`, 'success');
+      } catch (err) {
+        addToast(`"${updatedPages[i].name}" failed, skipping...`, 'error');
+      }
+      // Small delay between generations to avoid rate limits
+      if (i < updatedPages.length - 1) await new Promise(r => setTimeout(r, 1500));
+    }
+
+    setAutoGenRunning(false);
+    const doneCount = updatedPages.filter(p => p.html).length;
+    addToast(`Auto-generation complete! ${doneCount}/${updatedPages.length} screens ready.`, 'success');
+    setActivePageIndex(0);
+    setPreviewKey(k => k + 1);
   };
 
   const deletePage = (index) => {
@@ -566,7 +643,7 @@ ${pages.filter(p => p.html).map(p => `<div class="dw"><div class="dl">${p.name}<
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); pagesHistory.undo(); addToast('Undo', 'info'); }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); pagesHistory.redo(); addToast('Redo', 'info'); }
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); generatePage(); }
-      if (e.key === 'Escape') { setIsFullscreen(false); setShowSettings(false); setShowAddPageModal(false); setShowThemes(false); setShowExport(false); setShowSuggestions(false); }
+      if (e.key === 'Escape') { setIsFullscreen(false); setShowSettings(false); setShowAddPageModal(false); setShowThemes(false); setShowExport(false); setShowSuggestions(false); setShowAutoGen(false); }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -622,6 +699,7 @@ ${pages.filter(p => p.html).map(p => `<div class="dw"><div class="dl">${p.name}<
           <button onClick={() => pagesHistory.redo()} disabled={!pagesHistory.canRedo} className="p-2 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-20 transition-all" title="Redo"><Redo2 size={15} /></button>
           <div className="w-px h-5 bg-white/5 mx-1" />
           <button onClick={() => setShowSuggestions(true)} className="p-2 rounded-lg hover:bg-white/5 text-slate-500 transition-all" title="Page Suggestions"><Lightbulb size={15} /></button>
+          <button onClick={() => setShowAutoGen(true)} className="p-2 rounded-lg hover:bg-white/5 transition-all" style={{ color: autoGenRunning ? brand.primary : undefined }} title="Auto Generate All"><Rocket size={15} className={autoGenRunning ? 'animate-pulse' : ''} /></button>
           <button onClick={() => setShowThemes(true)} className="p-2 rounded-lg hover:bg-white/5 text-slate-500 transition-all" title="Themes"><Palette size={15} /></button>
           <button onClick={() => setShowExport(true)} className="p-2 rounded-lg hover:bg-white/5 text-slate-500 transition-all" title="Export"><Download size={15} /></button>
           <button onClick={copyCode} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1.5 ${copied ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-400 hover:text-white'}`}>
@@ -881,6 +959,70 @@ ${pages.filter(p => p.html).map(p => `<div class="dw"><div class="dl">${p.name}<
         </div>
       )}
 
+      {/* Auto Generate Modal */}
+      {showAutoGen && !autoGenRunning && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-8 backdrop-blur-xl">
+          <div className="absolute inset-0 bg-black/80" onClick={() => setShowAutoGen(false)} />
+          <div className="w-[550px] bg-[#0d0d12] border border-white/10 rounded-3xl p-7 relative z-10 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-black text-white flex items-center gap-2.5"><Rocket size={18} style={{ color: brand.primary }} /> Auto Generate App</h2>
+              <button onClick={() => setShowAutoGen(false)} className="p-2 hover:bg-white/5 rounded-lg text-slate-500"><X size={16} /></button>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-2">Upload your logo, pick an app type, and hit <b>Auto Generate</b>. All screens will be created one by one automatically!</p>
+
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5 mb-5">
+              <button onClick={() => logoInputRef.current?.click()} className="w-14 h-14 shrink-0 rounded-xl border-2 border-dashed flex items-center justify-center transition-all overflow-hidden" style={{ borderColor: logoBase64 ? brand.primary + '50' : 'rgba(255,255,255,0.1)' }}>
+                {logoBase64 ? <img src={logoBase64} alt="Logo" className="w-10 h-10 object-contain" /> : <Upload size={20} className="text-slate-600" />}
+              </button>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-white">{logoBase64 ? 'Logo ready' : 'Upload your logo first'}</p>
+                <p className="text-[10px] text-slate-500">{logoBase64 ? 'Will appear on every generated screen' : 'Click to upload (recommended)'}</p>
+              </div>
+            </div>
+
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Choose App Type to Auto-Generate:</p>
+            <div className="space-y-2.5">
+              {SUGGESTED_SETS.map((set, i) => (
+                <button key={i} onClick={() => autoGenerateAll(set)} className="w-full p-4 rounded-xl bg-white/5 border border-white/5 hover:border-white/20 transition-all text-left group">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <h3 className="text-sm font-bold text-white">{set.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ color: brand.primary, background: brand.primary + '15' }}>{set.pages.length} screens</span>
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg text-white opacity-0 group-hover:opacity-100 transition-all" style={{ background: brand.primary }}><Play size={10} className="inline mr-1" />Start</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mb-2">{set.desc}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {set.pages.slice(0, 8).map(p => <span key={p} className="px-2 py-0.5 bg-white/5 rounded text-[8px] text-slate-400 font-bold">{p}</span>)}
+                    {set.pages.length > 8 && <span className="px-2 py-0.5 bg-white/5 rounded text-[8px] text-slate-500 font-bold">+{set.pages.length - 8} more</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auto Gen Progress Overlay */}
+      {autoGenRunning && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[999] w-[420px] bg-[#0d0d12] border border-white/10 rounded-2xl p-5 shadow-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Loader2 size={16} className="animate-spin" style={{ color: brand.primary }} />
+              <span className="text-xs font-bold text-white">Auto-Generating...</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold" style={{ color: brand.primary }}>{autoGenProgress.current}/{autoGenProgress.total}</span>
+              <button onClick={() => { autoGenAbortRef.current = true; }} className="px-2.5 py-1 bg-red-500/10 border border-red-500/20 rounded-lg text-[10px] font-bold text-red-400 hover:bg-red-500/20 transition-all">Stop</button>
+            </div>
+          </div>
+          <div className="w-full bg-white/5 rounded-full h-2 mb-2 overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${(autoGenProgress.current / autoGenProgress.total) * 100}%`, background: `linear-gradient(90deg, ${brand.primary}, ${brand.primary}99)` }} />
+          </div>
+          <p className="text-[10px] text-slate-500 truncate">Generating: <span className="text-white font-bold">{autoGenProgress.currentName}</span></p>
+        </div>
+      )}
+
       {/* Brand Settings */}
       {showSettings && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-8 backdrop-blur-xl">
@@ -978,8 +1120,5 @@ ${pages.filter(p => p.html).map(p => `<div class="dw"><div class="dl">${p.name}<
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// MOUNT
-// ═══════════════════════════════════════════════════════════════════
 const root = createRoot(document.getElementById('root'));
 root.render(<App />);
