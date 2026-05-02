@@ -388,11 +388,26 @@ export default function App() {
     return list;
   }, [presetFilter]);
 
-  // ── Logo injection into generated HTML ──
+  // ── Logo injection into generated HTML (multi-strategy) ──
   const injectLogo = useCallback((html) => {
     if (!logoBase64 || !html) return html;
-    return html.replace(/\{\{APP_LOGO\}\}/g, logoBase64);
-  }, [logoBase64]);
+    // Strategy 1: Replace {{APP_LOGO}} placeholder if AI included it
+    let result = html.replace(/\{\{APP_LOGO\}\}/g, logoBase64);
+    // Strategy 2: If no placeholder was found and logo not already in HTML,
+    // forcefully inject logo after the first opening <body> tag or first header-like div
+    if (!result.includes(logoBase64)) {
+      const logoTag = `<img src="${logoBase64}" alt="${brand.name} Logo" style="height:28px;object-fit:contain;margin-right:8px;" />`;
+      // Try to inject after <body...>
+      if (result.match(/<body[^>]*>/i)) {
+        result = result.replace(/(<body[^>]*>)/i, `$1\n<div style="position:fixed;top:44px;left:16px;z-index:999;display:flex;align-items:center;">${logoTag}</div>`);
+      }
+      // Or inject at very start of content if no body tag
+      else {
+        result = `<div style="position:fixed;top:44px;left:16px;z-index:999;display:flex;align-items:center;">${logoTag}</div>\n` + result;
+      }
+    }
+    return result;
+  }, [logoBase64, brand.name]);
 
   // ── Handlers ──
   const handleFileUpload = (e) => {
@@ -473,7 +488,18 @@ export default function App() {
     const data = await resp.json();
     let html = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     html = html.replace(/```(html|markdown)?/g, '').replace(/```/g, '').trim();
-    if (logoB64) html = html.replace(/\{\{APP_LOGO\}\}/g, logoB64);
+    // Multi-strategy logo injection
+    if (logoB64) {
+      html = html.replace(/\{\{APP_LOGO\}\}/g, logoB64);
+      if (!html.includes(logoB64)) {
+        const logoTag = `<img src="${logoB64}" alt="Logo" style="height:28px;object-fit:contain;margin-right:8px;" />`;
+        if (html.match(/<body[^>]*>/i)) {
+          html = html.replace(/(<body[^>]*>)/i, `$1\n<div style="position:fixed;top:44px;left:16px;z-index:999;display:flex;align-items:center;">${logoTag}</div>`);
+        } else {
+          html = `<div style="position:fixed;top:44px;left:16px;z-index:999;display:flex;align-items:center;">${logoTag}</div>\n` + html;
+        }
+      }
+    }
     return html;
   };
 
@@ -1171,5 +1197,5 @@ ${pages.filter(p => p.html).map(p => `<div class="dw"><div class="dl">${p.name}<
   );
 }
 
-const root = createRoot(document.getElementById('root'));
+const root = createRoot(document.getElementById("root"));
 root.render(<App />);
