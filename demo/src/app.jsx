@@ -169,15 +169,57 @@ function buildSystemPrompt(brand, allPages, currentPageName, hasLogo) {
     : '';
   const existingPages = allPages.map(p => p.name).join(', ');
 
-  const logoInstruction = hasLogo
-    ? `\n6. LOGO: The app has a custom logo. Include this EXACT placeholder in the header/navbar of the screen: <img src="{{APP_LOGO}}" alt="${brand.name} Logo" style="height:32px;object-fit:contain;" />
-   This placeholder will be replaced with the actual logo after generation. ALWAYS include it in the top bar/header area.`
-    : '';
+  // Pick 5 bottom nav tabs from existing pages
+  const defaultTabs = [
+    { icon: 'fa-house', label: 'Home' },
+    { icon: 'fa-compass', label: 'Discover' },
+    { icon: 'fa-wallet', label: 'Wallet' },
+    { icon: 'fa-comment', label: 'Chat' },
+    { icon: 'fa-user', label: 'Profile' },
+  ];
 
   return `You are a World-Class Mobile App UI/UX Designer specialized in premium dark-themed social and crypto apps.
 Generate a COMPLETE, production-ready HTML string for the "${currentPageName}" mobile screen.
 
 DESIGN REFERENCE: The app style is inspired by trenduplive.com - a dark-themed social Web3 crypto community platform.
+
+===== MANDATORY LAYOUT STRUCTURE (EVERY SCREEN MUST FOLLOW THIS EXACTLY) =====
+
+Every screen MUST have this EXACT 3-part layout structure:
+
+PART 1 - FIXED TOP HEADER (ALWAYS PRESENT):
+<div style="position:fixed;top:0;left:0;right:0;z-index:50;background:${brand.bg || '#0F1419'};border-bottom:1px solid rgba(255,255,255,0.06);">
+  <!-- Status bar: 44px height with time left, signal+wifi+battery right -->
+  <div style="height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12px;font-weight:600;color:${brand.text || '#E5E7EB'};">
+    <span>9:41</span>
+    <div style="display:flex;gap:5px;align-items:center;"><i class="fas fa-signal" style="font-size:12px;"></i><i class="fas fa-wifi" style="font-size:12px;"></i><i class="fas fa-battery-full" style="font-size:12px;"></i></div>
+  </div>
+  <!-- App header bar: 52px height with logo/title left, action icons right -->
+  <div style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      ${hasLogo ? '<img src="{{APP_LOGO}}" alt="' + brand.name + ' Logo" style="height:28px;object-fit:contain;" />' : ''}
+      <span style="font-size:18px;font-weight:800;color:white;">${brand.name}</span>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;">
+      <i class="fas fa-bell" style="font-size:18px;color:${brand.text || '#E5E7EB'}80;"></i>
+      <i class="fas fa-search" style="font-size:18px;color:${brand.text || '#E5E7EB'}80;"></i>
+    </div>
+  </div>
+</div>
+
+PART 2 - SCROLLABLE CONTENT (BETWEEN HEADER AND BOTTOM NAV):
+- Must have padding-top: 96px (to clear the fixed header)
+- Must have padding-bottom: 80px (to clear the fixed bottom nav)
+- This is where the screen-specific content goes
+
+PART 3 - FIXED BOTTOM NAVIGATION BAR (ALWAYS PRESENT ON EVERY SCREEN):
+<div style="position:fixed;bottom:0;left:0;right:0;z-index:50;background:${brand.bg || '#0F1419'};border-top:1px solid rgba(255,255,255,0.06);height:70px;display:flex;align-items:center;justify-content:space-around;padding:0 10px;padding-bottom:8px;">
+  ${defaultTabs.map((t, idx) => `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;"><i class="fas ${t.icon}" style="font-size:20px;color:${idx === 0 ? brand.primary : (brand.text || '#E5E7EB') + '50'};"></i><span style="font-size:10px;font-weight:600;color:${idx === 0 ? brand.primary : (brand.text || '#E5E7EB') + '50'};">${t.label}</span></div>`).join('\n  ')}
+</div>
+
+Highlight the tab that matches "${currentPageName}" as active (use primary color ${brand.primary}).
+
+===== END MANDATORY LAYOUT =====
 
 STRICT DESIGN RULES:
 1. MOBILE FIRST: Optimize for 375x812 viewport. All content must fit mobile width.
@@ -188,21 +230,26 @@ STRICT DESIGN RULES:
    - Surface/Cards: ${brand.surface || '#1A1F2E'}
    - Text: ${brand.text || '#E5E7EB'}
    - Font: ${brand.font || 'Inter'}
-3. DARK THEME: Deep dark backgrounds (#0F1419), slightly lighter card surfaces (#1A1F2E), green accents for CTAs.
+3. DARK THEME: Deep dark backgrounds, slightly lighter card surfaces, brand accent for CTAs.
 4. CONSISTENCY: ${referenceCode}
-5. NAVIGATION: Pages in app: ${existingPages}. Use consistent bottom tab bar with icons.${logoInstruction}
-7. STYLE GUIDELINES:
-   - Rounded corners (rounded-2xl to rounded-3xl)
-   - Soft shadows and glassmorphism where appropriate
-   - FontAwesome 6 icons via CDN
+5. NAVIGATION: Pages in app: ${existingPages}.
+${hasLogo ? '6. LOGO: Already included in the header template above via {{APP_LOGO}} placeholder.' : ''}
+7. STYLE:
+   - Rounded corners (rounded-2xl, rounded-3xl)
+   - Soft shadows and glassmorphism cards
+   - FontAwesome 6 icons for ALL icons
    - Gradient accents on primary buttons
-   - Status bar area at top (time, signal, battery)
-   - Bottom navigation bar with 5 tabs and active indicator
-8. INCLUDE these CDNs in <head>:
-   - <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2/dist/tailwind.min.css" rel="stylesheet">
-   - <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-   - <link href="https://fonts.googleapis.com/css2?family=${brand.font || 'Inter'}:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-9. Make it look like a REAL production app, pixel-perfect, not a wireframe.
+   - Consistent 16px horizontal padding
+   - Card gaps: 12px
+   - All text uses the brand font
+8. CDNs in <head>:
+   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2/dist/tailwind.min.css" rel="stylesheet">
+   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+   <link href="https://fonts.googleapis.com/css2?family=${brand.font || 'Inter'}:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+9. Make it look like a REAL production app. Pixel-perfect, not a wireframe.
+10. The body must have: margin:0; font-family:'${brand.font || 'Inter'}',sans-serif; background:${brand.bg || '#0F1419'}; color:${brand.text || '#E5E7EB'};
+
+IMPORTANT: The header, status bar, and bottom navigation MUST be identical across ALL screens. Only the middle content area changes.
 
 Output ONLY the raw HTML string. No markdown. No code blocks. No explanations.`;
 }
@@ -741,8 +788,11 @@ ${pages.filter(p => p.html).map(p => `<div class="dw"><div class="dl">${p.name}<
                   </div>
                   {!sidebarCollapsed && activePageIndex === i && <ChevronRight size={11} className="shrink-0 opacity-60" />}
                 </button>
-                {!sidebarCollapsed && pages.length > 1 && (
-                  <button onClick={() => deletePage(i)} className="absolute right-7 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 text-slate-600 hover:text-red-500 transition-all"><Trash2 size={11} /></button>
+                {!sidebarCollapsed && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
+                    {p.html && <button onClick={(e) => { e.stopPropagation(); setActivePageIndex(i); setTimeout(() => { setPrompt(''); generatePage(); }, 100); }} className="p-1 text-slate-600 hover:text-amber-400 transition-all" title="Regenerate this screen"><RefreshCw size={10} /></button>}
+                    {pages.length > 1 && <button onClick={() => deletePage(i)} className="p-1 text-slate-600 hover:text-red-500 transition-all" title="Delete"><Trash2 size={10} /></button>}
+                  </div>
                 )}
               </div>
             ))}
@@ -795,8 +845,9 @@ ${pages.filter(p => p.html).map(p => `<div class="dw"><div class="dl">${p.name}<
                 ))}
               </div>
               {currentPage?.html && (
-                <><button onClick={() => setIsFullscreen(true)} className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 transition-all" title="Fullscreen"><Maximize2 size={13} /></button>
-                <button onClick={() => setPreviewKey(k => k + 1)} className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 transition-all" title="Refresh"><RefreshCw size={13} /></button></>
+                <><button onClick={() => { setPrompt(''); generatePage(); }} disabled={isLoading} className="px-2.5 py-1 rounded-lg hover:bg-amber-500/10 text-amber-400/70 hover:text-amber-400 transition-all flex items-center gap-1 text-[10px] font-bold disabled:opacity-30 border border-transparent hover:border-amber-500/20" title="Regenerate this screen"><RefreshCw size={11} /> Regenerate</button>
+                <button onClick={() => setIsFullscreen(true)} className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 transition-all" title="Fullscreen"><Maximize2 size={13} /></button>
+                <button onClick={() => setPreviewKey(k => k + 1)} className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 transition-all" title="Refresh preview"><RefreshCw size={13} /></button></>
               )}
               {genStats.count > 0 && <span className="text-[9px] text-slate-600 font-bold ml-1">{genStats.count} gen{genStats.count > 1 ? 's' : ''} • {genStats.lastTime}s</span>}
             </div>
